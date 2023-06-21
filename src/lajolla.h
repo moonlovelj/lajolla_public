@@ -77,3 +77,8 @@ inline Real radians(const Real deg) {
 inline Real degrees(const Real rad) {
     return (Real(180) / c_PI) * rad;
 }
+
+template <typename T>
+inline T interpolate(const T& x, const T& y, Real a) {
+    return x + (y - x) * a;
+}
