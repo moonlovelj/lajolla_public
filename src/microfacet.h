@@ -71,6 +71,15 @@ inline Real GGX(Real n_dot_h, Real roughness) {
     return GTR2(n_dot_h, roughness);
 }
 
+inline Real GTR2_aniso(Real NdotH, Real HdotX, Real HdotY, Real ax, Real ay) {
+    return 1.0 / (c_PI * ax * ay * sqr(sqr(HdotX / ax) + sqr(HdotY / ay) + NdotH * NdotH));
+}
+
+inline Real GGX_aniso(Real NdotV, Real VdotX, Real VdotY, Real ax, Real ay)
+{
+    return 1.0 / (NdotV + sqrt(sqr(VdotX * ax) + sqr(VdotY * ay) + sqr(NdotV)));
+}
+
 /// The masking term models the occlusion between the small mirrors of the microfacet models.
 /// See Eric Heitz's paper "Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs"
 /// for a great explanation.

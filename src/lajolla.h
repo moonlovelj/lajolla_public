@@ -82,3 +82,7 @@ template <typename T>
 inline T interpolate(const T& x, const T& y, Real a) {
     return x + (y - x) * a;
 }
+
+inline Real sqr(Real a) {
+    return a * a;
+}
