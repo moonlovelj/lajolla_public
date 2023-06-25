@@ -57,6 +57,10 @@ struct DisneyMetal {
     Texture<Spectrum> base_color;
     Texture<Real> roughness;
     Texture<Real> anisotropic;
+    Texture<Real> specular;
+    Texture<Real> metallic;
+    Texture<Real> specular_tint;
+    Real eta; // internal IOR / externalIOR
 };
 
 /// For homework 1: the transmissive component of the Disney BRDF.

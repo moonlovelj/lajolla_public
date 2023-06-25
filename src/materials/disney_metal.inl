@@ -24,7 +24,23 @@ Spectrum eval_op::operator()(const DisneyMetal &bsdf) const {
     Real ax = max(.001, sqr(roughness) / aspect);
     Real ay = max(.001, sqr(roughness) * aspect);
     Real Ds = GTR2_aniso(dot(frame.n, H), dot(frame.x, H), dot(frame.y, H), ax, ay);
-    Spectrum Fs = schlick_fresnel(base_color, dot(H, dir_out));
+
+    Spectrum c_tint;
+    Real luminance_base_color = luminance(base_color);
+    if (luminance_base_color > 0)
+    {
+        c_tint = base_color / luminance_base_color;
+    }
+    else
+    {
+        c_tint = make_const_spectrum(1);
+    }
+    Real specularTint = eval(bsdf.specular_tint, vertex.uv, vertex.uv_screen_size, texture_pool);
+    Real metallic = eval(bsdf.metallic, vertex.uv, vertex.uv_screen_size, texture_pool);
+    Real specular = eval(bsdf.specular, vertex.uv, vertex.uv_screen_size, texture_pool);
+    Spectrum Ks = interpolate(make_const_spectrum(1), c_tint, specularTint);
+    Spectrum C0 = interpolate(sqr((1.0 - bsdf.eta) / (1.0 + bsdf.eta)) * specular * Ks, base_color, metallic);
+    Spectrum Fs = schlick_fresnel(C0, dot(H, dir_out));
     Real Gs = GGX_aniso(NdotL, dot(dir_out, frame.x), dot(dir_out, frame.y), ax, ay) * 
         GGX_aniso(NdotV, dot(dir_in, frame.x), dot(dir_in, frame.y), ax, ay);
 
