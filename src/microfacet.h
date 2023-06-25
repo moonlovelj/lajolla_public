@@ -71,6 +71,21 @@ inline Real GGX(Real n_dot_h, Real roughness) {
     return GTR2(n_dot_h, roughness);
 }
 
+inline Real smithG_GGX(Real NdotV, Real alphaG)
+{
+    Real a = alphaG * alphaG;
+    Real b = NdotV * NdotV;
+    return 1.0 / (NdotV + sqrt(a + b - a * b));
+}
+
+inline Real GTR1(Real NdotH, Real a)
+{
+    if (a >= 1) return 1 / c_PI;
+    Real a2 = a * a;
+    Real t = 1 + (a2 - 1) * NdotH * NdotH;
+    return (a2 - 1) / (c_PI * log(a2) * t);
+}
+
 inline Real GTR2_aniso(Real NdotH, Real HdotX, Real HdotY, Real ax, Real ay) {
     return 1.0 / (c_PI * ax * ay * sqr(sqr(HdotX / ax) + sqr(HdotY / ay) + NdotH * NdotH));
 }
@@ -125,4 +140,21 @@ inline Vector3 sample_visible_normals(const Vector3 &local_dir_in, Real alpha, c
 
     // Transforming the normal back to the ellipsoid configuration
     return normalize(Vector3{alpha * hemi_N.x, alpha * hemi_N.y, max(Real(0), hemi_N.z)});
+}
+
+inline Vector3 sample_visible_normals_clearcoat(const Vector3& local_dir_in, Real alpha, const Vector2& rnd_param)
+{
+    if (local_dir_in.z < 0) {
+        // Ensure the input is on top of the surface.
+        return -sample_visible_normals_clearcoat(-local_dir_in, alpha, rnd_param);
+    }
+
+    Real a2 = alpha * alpha;
+    Real cos_h_elevation = sqrt((1 - pow(a2, 1 - rnd_param.x)) / (1 - a2));
+    Real sin_h_elevation = sqrt(1 - cos_h_elevation);
+    Real h_azimuth = 2 * c_PI * rnd_param.y;
+    Real h_x = sin_h_elevation * cos(h_azimuth);
+    Real h_y = sin_h_elevation * sin(h_azimuth);
+    Real h_z = cos_h_elevation;
+    return normalize(Vector3{ h_x , h_y, h_z });
 }
