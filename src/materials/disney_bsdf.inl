@@ -77,16 +77,20 @@ Real pdf_sample_bsdf_op::operator()(const DisneyBSDF &bsdf) const {
         Real clearcoatGloss = eval(bsdf.clearcoat_gloss, vertex.uv, vertex.uv_screen_size, texture_pool);
         Real eta = bsdf.eta;
 
-        // Real diffuseWeight = (1 - metallic) * (1 - specularTransmission);
-        // Real metalWeight = 1 - specularTransmission * (1 - metallic);
-        // Real glassWeight = (1 - metallic) * specularTransmission;
-        // Real clearcoatWeight = 0.25 * clearcoat;
+        Real diffuseWeight = (1 - metallic) * (1 - specularTransmission);
+        Real metalWeight = 1 - specularTransmission * (1 - metallic);
+        Real glassWeight = (1 - metallic) * specularTransmission;
+        Real clearcoatWeight = 0.25 * clearcoat;
+        Real numWeightInverse = 1 / (diffuseWeight + metalWeight + glassWeight + clearcoatWeight);
+        diffuseWeight *= numWeightInverse;
+        metalWeight *= numWeightInverse;
+        glassWeight *= numWeightInverse;
+        clearcoatWeight *= numWeightInverse;
 
-        return pdf_sample_bsdf(DisneyDiffuse{ bsdf.base_color, bsdf.roughness, bsdf.subsurface }, dir_in, dir_out, vertex, texture_pool, dir) * (1 - specularTransmission) * (1 - metallic) +
-            pdf_sample_bsdf(DisneySheen{ bsdf.base_color, bsdf.sheen_tint }, dir_in, dir_out, vertex, texture_pool, dir) * (1 - metallic) * sheen +
-            pdf_sample_bsdf(DisneyMetal{ bsdf.base_color, bsdf.roughness, bsdf.anisotropic, bsdf.specular, bsdf.metallic, bsdf.specular_tint, bsdf.eta }, dir_in, dir_out, vertex, texture_pool, dir) * (1 - specularTransmission * (1 - metallic)) +
-            pdf_sample_bsdf(DisneyClearcoat{ bsdf.clearcoat_gloss }, dir_in, dir_out, vertex, texture_pool, dir) * 0.25 * clearcoat +
-            pdf_sample_bsdf(DisneyGlass{ bsdf.base_color, bsdf.roughness, bsdf.anisotropic, bsdf.eta }, dir_in, dir_out, vertex, texture_pool, dir) * (1-metallic) * specularTransmission;
+        return pdf_sample_bsdf(DisneyDiffuse{ bsdf.base_color, bsdf.roughness, bsdf.subsurface }, dir_in, dir_out, vertex, texture_pool, dir) * diffuseWeight +
+            pdf_sample_bsdf(DisneyMetal{ bsdf.base_color, bsdf.roughness, bsdf.anisotropic, bsdf.specular, bsdf.metallic, bsdf.specular_tint, bsdf.eta }, dir_in, dir_out, vertex, texture_pool, dir) * metalWeight +
+            pdf_sample_bsdf(DisneyClearcoat{ bsdf.clearcoat_gloss }, dir_in, dir_out, vertex, texture_pool, dir) * clearcoatWeight +
+            pdf_sample_bsdf(DisneyGlass{ bsdf.base_color, bsdf.roughness, bsdf.anisotropic, bsdf.eta }, dir_in, dir_out, vertex, texture_pool, dir) * glassWeight;
     }
 }
 
