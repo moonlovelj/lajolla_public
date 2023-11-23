@@ -124,8 +124,107 @@ Spectrum vol_path_tracing_2(const Scene &scene,
 Spectrum vol_path_tracing_3(const Scene &scene,
                             int x, int y, /* pixel coordinates */
                             pcg32_state &rng) {
-    // Homework 2: implememt this!
-    return make_zero_spectrum();
+    int w = scene.camera.width, h = scene.camera.height;
+    Vector2 screen_pos((x + next_pcg32_real<Real>(rng)) / w,
+                       (y + next_pcg32_real<Real>(rng)) / h);
+    Ray ray = sample_primary(scene.camera, screen_pos);
+    int current_medium_id = scene.camera.medium_id;
+    Spectrum radiance = make_zero_spectrum();
+    int bounces = 0;
+    Spectrum current_path_throughput = make_const_spectrum(1);
+
+    while (true)
+    {
+        bool scatter = false;
+        std::optional<PathVertex> vertex_ = intersect(scene, ray);
+        Spectrum transmittance = make_const_spectrum(1);
+        Spectrum trans_pdf = make_const_spectrum(1);
+        Real t_hit = infinity<Real>();
+        if (vertex_) {
+            t_hit = distance((*vertex_).position, ray.org);
+        }
+        if (current_medium_id > -1)
+        {
+            Spectrum sigma_t = get_sigma_a(scene.media[current_medium_id], Vector3{0, 0, 0}) + get_sigma_s(scene.media[current_medium_id], Vector3{0, 0, 0});
+            Real u = next_pcg32_real<Real>(rng);
+            Real t = -log(1-u) / sigma_t.x;
+            if (t < t_hit)
+            {
+                scatter = true;
+                trans_pdf = exp(-sigma_t * t) * sigma_t;
+                transmittance = exp(-sigma_t * t);
+            }
+            else
+            {
+                trans_pdf = exp(-sigma_t * t_hit);
+                transmittance = exp(-sigma_t * t_hit);
+            }
+
+            current_path_throughput *= (transmittance / trans_pdf);
+            ray.org = ray.org + t * ray.dir;
+        }
+
+        if (!scatter)
+        {
+            Spectrum Le = make_zero_spectrum();
+            if (vertex_ && is_light(scene.shapes[(*vertex_).shape_id])) {
+                Le = emission((*vertex_), -ray.dir, scene);
+            }
+            radiance += current_path_throughput * Le;
+        }
+
+        if (bounces == scene.options.max_depth - 1 && scene.options.max_depth != -1)
+        {
+            break;
+        }
+
+        if (!scatter && vertex_ && (*vertex_).material_id == -1)
+        {
+            if ( (*vertex_).interior_medium_id !=  (*vertex_).exterior_medium_id)
+            {
+                if (dot(ray.dir, (*vertex_).geometric_normal) > 0)
+                {
+                    current_medium_id = (*vertex_).exterior_medium_id;
+                }
+                else
+                {
+                    current_medium_id = (*vertex_).interior_medium_id;
+                }
+            }
+            bounces += 1;
+            continue;
+        }
+
+        if (scatter)
+        {
+            PhaseFunction phase_function = get_phase_function(scene.media[current_medium_id]);
+            std::optional<Vector3> next_dir = sample_phase_function(phase_function, -ray.dir, Vector2 (next_pcg32_real<Real>(rng), next_pcg32_real<Real>(rng)));
+            current_path_throughput *=eval(phase_function, -ray.dir, *next_dir) / pdf_sample_phase(phase_function, -ray.dir, *next_dir) * get_sigma_s(scene.media[current_medium_id], Vector3{0, 0, 0});
+            ray.dir = *next_dir;
+        }
+        else
+        {
+            break;
+        }
+
+        Real rr_prob = 1;
+        if (bounces >= scene.options.rr_depth)
+        {
+            rr_prob = min(current_path_throughput.x, 0.95);
+            if (next_pcg32_real<Real>(rng) > rr_prob)
+            {
+                break;
+            }
+            else
+            {
+                current_path_throughput /= rr_prob;
+            }
+        }
+
+        bounces += 1;
+    }
+    
+    return radiance;
 }
 
 // The fourth volumetric renderer: 
