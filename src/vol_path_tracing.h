@@ -158,10 +158,15 @@ Spectrum vol_path_tracing_3(const Scene &scene,
             {
                 trans_pdf = exp(-sigma_t * t_hit);
                 transmittance = exp(-sigma_t * t_hit);
+                t = t_hit + get_intersection_epsilon(scene);
             }
 
             current_path_throughput *= (transmittance / trans_pdf);
             ray.org = ray.org + t * ray.dir;
+        }
+        else
+        {
+            ray.org = ray.org + (t_hit + get_intersection_epsilon(scene)) * ray.dir;
         }
 
         if (!scatter)
@@ -275,6 +280,7 @@ Spectrum next_event_estimation(const Scene &scene,
 
         std::optional<PathVertex> isect = intersect(scene, shadow_ray);
         Real next_t = distance(point_on_light.position, p);
+        
         if (isect)
         {
             next_t = distance(p, (*isect).position);
@@ -301,7 +307,7 @@ Spectrum next_event_estimation(const Scene &scene,
         shadow_medium_id = update_medium(*isect, shadow_ray, shadow_medium_id);
         p = p + next_t * dir_light;
     }
-
+    
     if (T_light.x > 0)
     {
         Real G = max(-dot(dir_light, point_on_light.normal), Real(0)) /
@@ -309,9 +315,11 @@ Spectrum next_event_estimation(const Scene &scene,
         Real p1 = light_pmf(scene, light_id) *
                pdf_point_on_light(light, point_on_light, vertex_position, scene);
 
-        return eval(phase_function, dir_view, dir_light) * emission(light, -dir_light, Real(0), point_on_light, scene) * T_light * G / p1;
+        Spectrum pdf_phase = pdf_sample_phase(phase_function, dir_view, dir_light) * G * p_trans_dir;
+        Real w_nee = (p1 * p1)/(p1 * p1 + pdf_phase.x * pdf_phase.x);
+        return eval(phase_function, dir_view, dir_light) * emission(light, -dir_light, Real(0), point_on_light, scene) * T_light * G / p1 * w_nee;
     }
-
+    
     return make_zero_spectrum();
 }
 
@@ -330,7 +338,11 @@ Spectrum vol_path_tracing_4(const Scene &scene,
     Spectrum radiance = make_zero_spectrum();
     int bounces = 0;
     Spectrum current_path_throughput = make_const_spectrum(1);
-
+    Spectrum multi_trans_pdf = make_const_spectrum(1);
+    Spectrum dir_pdf = make_const_spectrum(0);
+    Vector3 nee_p_cache;
+    bool never_scatter = true;
+    
     while (true)
     {
         bool scatter = false;
@@ -351,24 +363,42 @@ Spectrum vol_path_tracing_4(const Scene &scene,
                 scatter = true;
                 trans_pdf = exp(-sigma_t * t) * sigma_t;
                 transmittance = exp(-sigma_t * t);
+                multi_trans_pdf = make_const_spectrum(1);
             }
             else
             {
                 trans_pdf = exp(-sigma_t * t_hit);
                 transmittance = exp(-sigma_t * t_hit);
+                multi_trans_pdf *= trans_pdf;
+                t = t_hit + get_intersection_epsilon(scene);
             }
 
             current_path_throughput *= (transmittance / trans_pdf);
             ray.org = ray.org + t * ray.dir;
         }
+        else
+        {
+            ray.org = ray.org + (t_hit + get_intersection_epsilon(scene)) * ray.dir;
+        }
 
         if (!scatter)
         {
             Spectrum Le = make_zero_spectrum();
+            Spectrum W = make_const_spectrum(1);
             if (vertex_ && is_light(scene.shapes[(*vertex_).shape_id])) {
                 Le = emission((*vertex_), -ray.dir, scene);
+                if (!never_scatter)
+                {
+                    PointAndNormal light_point;
+                    light_point.position = (*vertex_).position;
+                    light_point.normal = (*vertex_).geometric_normal;
+                    Real pdf_nee = pdf_point_on_light(scene.lights[get_area_light_id(scene.shapes[(*vertex_).shape_id])], light_point, nee_p_cache, scene);
+                    Real G = max(dot(normalize((nee_p_cache-light_point.position)), light_point.normal), Real(0)) / distance_squared(light_point.position, nee_p_cache);
+                    Spectrum dir_pdf_ = dir_pdf * multi_trans_pdf * G;
+                    W = make_const_spectrum((dir_pdf_.x * dir_pdf_.x) / (dir_pdf_.x * dir_pdf_.x + pdf_nee * pdf_nee));
+                }
             }
-            radiance += current_path_throughput * Le;
+            radiance += current_path_throughput * Le * W;
         }
 
         if (bounces == scene.options.max_depth - 1 && scene.options.max_depth != -1)
@@ -382,13 +412,22 @@ Spectrum vol_path_tracing_4(const Scene &scene,
             bounces += 1;
             continue;
         }
-
+        
         if (scatter)
         {
+            never_scatter = false;
+
             PhaseFunction phase_function = get_phase_function(scene.media[current_medium_id]);
-            radiance += current_path_throughput * next_event_estimation(scene, phase_function,
+            Spectrum sigma_s = get_sigma_s(scene.media[current_medium_id], Vector3{0, 0, 0});
+            Spectrum nee_result = next_event_estimation(scene, phase_function,
                 -ray.dir, ray.org, current_medium_id, bounces, rng);
-            break;
+            radiance += current_path_throughput * nee_result * sigma_s;
+            
+            std::optional<Vector3> next_dir = sample_phase_function(phase_function, -ray.dir, Vector2 (next_pcg32_real<Real>(rng), next_pcg32_real<Real>(rng)));
+            dir_pdf = make_const_spectrum(pdf_sample_phase(phase_function, -ray.dir, *next_dir));
+            current_path_throughput *= eval(phase_function, -ray.dir, *next_dir) / dir_pdf.x * sigma_s ;
+            ray.dir = *next_dir;
+            nee_p_cache = ray.org;
         }
         else
         {
